@@ -1,0 +1,80 @@
+Practical Machine Learning Assignment Write-up
+========================================================
+
+**QUESTION:** Can we predict how well a user performed barbell lifts?
+
+**DATASET:** Information from accelerometers for 6 participants, who were asked to perform barbell lifts:
+* Exactly according to the specification (Class A)
+* Throwing the elbows to the front (Class B)
+* Lifting the dumbbell only halfway (Class C)
+* Lowering the dumbbell only halfway (Class D) 
+* Throwing the hips to the front (Class E)
+
+More information about the dataset is available here:
+http://groupware.les.inf.puc-rio.br/har#dataset#ixzz35JRAt5qV
+
+The dataset includes an index variable, user name, timestamp, window, and the results from accelerometer measurements. Index, timestamp, and window are were excluded as non-relevant to prediction. Accelerometer measurements include roll, pitch, yaw, acceleration in three directions, gyros in three directions, magnet in three directions, and total acceleration. Summary metrics are also included for yaw, roll, pitch, and total acceleration but were excluded from model building due to a significant number of missing or non-numeric observations.
+
+```{r, warning=FALSE, message=FALSE}
+# REQUIRED PACKAGES
+library(caret)
+library(ggplot2)
+set.seed(999)
+
+# READ & PROCESS DATA
+data <- read.table("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                   header = TRUE, sep = ",", colClasses = "character")
+data <- data[, c(2, 8:11, 37:49, 60:68, 84:86, 102, 113:124, 140, 151:160)]
+names(data) <- c("User", names(data[, 2:54]))
+for (i in 2:53) data[, i] <- as.numeric(data[, i])
+data$classe <- as.factor(data$classe)
+data$User <- as.factor(data$User)
+
+# CREATE TRAINING AND TESTING SUBSETS
+intrn <- createDataPartition(y = data$classe, p = 0.7, list = FALSE)
+trn <- data[intrn, ]
+tst <- data[-intrn, ]
+rm(data, intrn, i)
+```
+
+User was maintained as a factor variable since individual users were significant drivers of variability in accelerometer measurements. For example, the plot below shows Class as a function of Belt Roll, classified by User.
+
+```{r, fig.width=7, fig.height=6, echo=FALSE}
+qplot(roll_belt, classe, position = position_jitter(h=0.4, w=0), 
+      colour = User, data = trn, xlab = "Belt Roll", ylab = "Class")
+```
+
+**ALGORITHM:** As the objective is to classify barbell lifts into five different options, trees were slected as the perferred method. The caret package was used to build the models.
+
+A simple prediction tree was constructed first. However, it was determined inadequate when it exhibited very poor performance and did not predict for all five classes.
+
+```{r, warning=FALSE, message=FALSE}
+tree <- train(classe ~ ., method = "rpart", data = trn)
+```
+
+```{r, fig.width=7, fig.height=6, echo=FALSE, warning=FALSE, message=FALSE}
+tree
+qplot(predict(tree, tst), tst$classe, 
+      position = position_jitter(h=0.4, w=0.4),
+      colour = tst$User, xlab = "Prediction", ylab = "Truth")
+rm(tree)
+```
+
+Next, boosting with trees was performed, resulting in significantly improved performance.
+
+```{r, warning=FALSE, message=FALSE}
+boost.tree <- train(classe ~ ., method = "gbm", data = trn, verbose = FALSE)
+```
+
+```{r, fig.width=7, fig.height=6, echo=FALSE, warning=FALSE, message=FALSE}
+boost.tree
+qplot(predict(boost.tree, tst), tst$classe, 
+      position = position_jitter(h=0.4, w=0.4),
+      colour = tst$User, xlab = "Prediction", ylab = "Truth")
+```
+
+**EVALUATION:** Final model performance was assessed using the confusion matrix function of the caret package. This estimates an overall out-of-sample accuracy of more than 96% and negative predictive value for Class A (i.e., the probability that the algorithm will correctly predict that the dumbell was performed incorrectly) of more than 99%.
+
+```{r, echo=FALSE, warning=FALSE, message = FALSE}
+confusionMatrix(predict(boost.tree, tst), tst$classe)
+```
